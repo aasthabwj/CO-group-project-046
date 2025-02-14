@@ -19,15 +19,14 @@ R_TYPE_CODES = {
 }
 
 I_TYPE_CODES = {
-    "lw": ("010", "0000011"), "addi": ("000", "0010011"),
+    "lw": ("010", "0000011"), "addi": ("000", "0010011"), 
     "sltiu": ("011", "0010011"), "jalr": ("000", "1100111")
 }
 
 S_TYPE_CODES = ["sw"]
 
 B_TYPE_CODES = {
-    "beq": "000", "bne": "001", "blt": "100",
-    "bltu": "110", "bgeu": "111"
+    "beq": "000", "bne": "001", "blt": "100", "bltu": "110", "bgeu": "111"
 }
 
 U_TYPE_CODES = {'lui': '0110111', 'auipc': '0010111'}
@@ -38,7 +37,6 @@ EXT_TYPE_CODES = {"mul", "rst", "halt", "rvrs"}
 
 ALL_CODES = [R_TYPE_CODES, I_TYPE_CODES, S_TYPE_CODES, B_TYPE_CODES, U_TYPE_CODES, J_TYPE_CODES, EXT_TYPE_CODES]
 
-
 # Helper Functions
 def decimal_to_binary(n, bits):
     if n < 0:
@@ -47,7 +45,7 @@ def decimal_to_binary(n, bits):
 
 
 def is_immediate_valid(imm, bits):
-    return -(2*(bits-1)) <= imm < 2*(bits-1)
+    return -(2**(bits-1)) <= imm < 2**(bits-1)
 
 
 def check_virtual_halt(data):
@@ -70,6 +68,8 @@ def process_labels(data):
     for i, line in enumerate(data):
         for label, address in labels.items():
             data[i] = re.sub(rf'\b{label}\b', str(address - i * 4), line)
+
+
 
 
 # R type instructions
@@ -106,7 +106,87 @@ def handle_i_type(instruction):
     except:
         return "error"
 
+#S type instructions
+def handle_s_type(instruction):
+    parts = [part.strip() for part in instruction.split(",")]
+    try:
+        imm_str = parts[1][:parts[1].index("(")]
+        imm = int(imm_str)
+        if not is_immediate_valid(imm, 12):
+            return "ill_imm"
+        rs2 = REGISTER_CODES[parts[0].split()[1]]
+        rs1 = REGISTER_CODES[parts[1][parts[1].index("(")+1:parts[1].index(")")]]
+        imm_bin = decimal_to_binary(imm, 12)
+        return f"{imm_bin[:7]}{rs2}{rs1}010{imm_bin[7:12]}0100011\n"
+    except:
+        return "error"
 
+# B type instructions
+def handle_b_type(instruction):
+    parts = [part.strip() for part in instruction.split(",")]
+    try:
+        op, rs1 = parts[0].split()
+        rs2 = REGISTER_CODES[parts[1]]
+        imm = int(parts[2])
+        if not is_immediate_valid(imm, 13):
+            return "ill_imm"
+        imm_bin = decimal_to_binary(imm, 13)
+        imm_rearranged = imm_bin[0] + imm_bin[2:8] + imm_bin[8:12] + imm_bin[1]  
+        return f"{imm_rearranged}{rs2}{REGISTER_CODES[rs1]}{B_TYPE_CODES[op]}1100011\n"
+    except:
+        return "error"
+
+
+# U type instructions
+def handle_u_type(instruction):
+    parts = [part.strip() for part in instruction.split(",")]
+    try:
+        op, rd = parts[0].split()
+        imm = int(parts[1])
+        if not is_immediate_valid(imm, 32):
+            return "error"
+        imm_bin = decimal_to_binary(imm, 32)[:20]
+        return f"{imm_bin}{REGISTER_CODES[rd]}{U_TYPE_CODES[op]}\n"
+    except:
+        return "error"
+
+# J type instructions
+def handle_j_type(instruction):
+    parts = [part.strip() for part in instruction.split(",")]
+    try:
+        op, rd = parts[0].split()
+        imm = int(parts[1])
+        if not is_immediate_valid(imm, 21):
+            return "error"
+        imm_bin = decimal_to_binary(imm, 21)
+        imm_combined = imm_bin[0] + imm_bin[10:20] + imm_bin[9] + imm_bin[1:9]
+        return f"{imm_combined}{REGISTER_CODES[rd]}{J_TYPE_CODES[op]}\n"
+    except:
+        return "error"
+
+def handle_ext_type(instruction):
+    parts = [part.strip() for part in instruction.split(",")]
+    op = parts[0].split()[0]
+    try:
+        if op == "mul":
+            if len(parts) < 3:
+                return "error"
+            return f"0000000{REGISTER_CODES[parts[2]]}{REGISTER_CODES[parts[1]]}000{REGISTER_CODES[parts[0].split()[1]]}1111111\n"
+        elif op == "rst":
+            return "0000000111111111111111111111111\n" if len(parts) == 1 else "error"
+        elif op == "halt":
+            return "00000000000000000000000001100011\n" if len(parts) == 1 else "error"
+        elif op == "rvrs":
+            if len(parts) < 2:
+                return "error"
+            return f"000000000000{REGISTER_CODES[parts[1]]}001{REGISTER_CODES[parts[0].split()[1]]}1111111\n"
+        else:
+            return "error"
+    except:
+        return "error"
+
+
+# Instruction to Binary Converter
 def convert_instruction_to_binary(instruction):
     for i, code_set in enumerate(ALL_CODES):
         if instruction.split()[0] in code_set:
@@ -114,7 +194,9 @@ def convert_instruction_to_binary(instruction):
     return "error"
 
 
-if _name_ == "_main_":
+# Main Execution
+
+if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Usage: python assembler.py <input_file> <output_file> [--format=plain|spaced]")
         sys.exit(1)
@@ -159,3 +241,4 @@ if _name_ == "_main_":
         print("Virtual halt is not the last instruction")
     else:
         print("Virtual halt missing")
+
