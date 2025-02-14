@@ -30,9 +30,13 @@ B_TYPE_CODES = {
     "bltu": "110", "bgeu": "111"
 }
 
+U_TYPE_CODES = {'lui': '0110111', 'auipc': '0010111'}
+
+J_TYPE_CODES = {'jal': '1101111'}
+
 EXT_TYPE_CODES = {"mul", "rst", "halt", "rvrs"}
 
-ALL_CODES = [R_TYPE_CODES, I_TYPE_CODES, S_TYPE_CODES, B_TYPE_CODES, EXT_TYPE_CODES]
+ALL_CODES = [R_TYPE_CODES, I_TYPE_CODES, S_TYPE_CODES, B_TYPE_CODES, U_TYPE_CODES, J_TYPE_CODES, EXT_TYPE_CODES]
 
 
 # Helper Functions
@@ -43,7 +47,7 @@ def decimal_to_binary(n, bits):
 
 
 def is_immediate_valid(imm, bits):
-    return -(2*(bits-1)) <= imm < 2*(bits-1)
+    return -(2**(bits-1)) <= imm < 2**(bits-1)
 
 
 def check_virtual_halt(data):
@@ -66,6 +70,8 @@ def process_labels(data):
     for i, line in enumerate(data):
         for label, address in labels.items():
             data[i] = re.sub(rf'\b{label}\b', str(address - i * 4), line)
+
+
 
 
 # R type instructions
@@ -102,8 +108,7 @@ def handle_i_type(instruction):
     except:
         return "error"
 
-
-# S type instructions
+#S type instructions
 def handle_s_type(instruction):
     parts = [part.strip() for part in instruction.split(",")]
     try:
@@ -117,7 +122,6 @@ def handle_s_type(instruction):
         return f"{imm_bin[:7]}{rs2}{rs1}010{imm_bin[7:12]}0100011\n"
     except:
         return "error"
-
 
 # B type instructions
 def handle_b_type(instruction):
@@ -135,7 +139,33 @@ def handle_b_type(instruction):
         return "error"
 
 
-# Extended type instructions
+# U type instructions
+def handle_u_type(instruction):
+    parts = [part.strip() for part in instruction.split(",")]
+    try:
+        op, rd = parts[0].split()
+        imm = int(parts[1])
+        if not is_immediate_valid(imm, 32):
+            return "error"
+        imm_bin = decimal_to_binary(imm, 32)[:20]
+        return f"{imm_bin}{REGISTER_CODES[rd]}{U_TYPE_CODES[op]}\n"
+    except:
+        return "error"
+
+# J type instructions
+def handle_j_type(instruction):
+    parts = [part.strip() for part in instruction.split(",")]
+    try:
+        op, rd = parts[0].split()
+        imm = int(parts[1])
+        if not is_immediate_valid(imm, 21):
+            return "error"
+        imm_bin = decimal_to_binary(imm, 21)
+        imm_combined = imm_bin[0] + imm_bin[10:20] + imm_bin[9] + imm_bin[1:9]
+        return f"{imm_combined}{REGISTER_CODES[rd]}{J_TYPE_CODES[op]}\n"
+    except:
+        return "error"
+
 def handle_ext_type(instruction):
     parts = [part.strip() for part in instruction.split(",")]
     op = parts[0].split()[0]
@@ -156,3 +186,27 @@ def handle_ext_type(instruction):
             return "error"
     except:
         return "error"
+
+
+# Main Execution
+
+if _name_ == "_main_":
+    if len(sys.argv) < 3:
+        print("Usage: python assembler.py <input_file> <output_file> [--format=plain|spaced]")
+        sys.exit(1)
+
+    input_file, output_file = sys.argv[1], sys.argv[2]
+    output_format = "plain"
+
+    if len(sys.argv) == 4 and sys.argv[3].startswith("--format="):
+        output_format = sys.argv[3].split("=")[1]
+
+    with open(input_file, "r") as f:
+        data = f.read().splitlines()
+
+    process_labels(data)
+
+    binary_output = []
+    for i, line in enumerate(data):
+        if not line.strip():
+            continue

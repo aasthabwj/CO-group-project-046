@@ -13,26 +13,30 @@ REGISTER_CODES = {
 }
 
 R_TYPE_CODES = {
-    "add": ("0000000", "000"), "sub": ("0100000", "000"), "sll": ("0000000", "001"),
-    "slt": ("0000000", "010"), "sltu": ("0000000", "011"), "xor": ("0000000", "100"),
+    "add": ("0000000", "000"), "sub": ("0100000", "000"),
+    "slt": ("0000000", "010"), "sltu": ("0000000", "011"),
     "srl": ("0000000", "101"), "or": ("0000000", "110"), "and": ("0000000", "111")
 }
 
 I_TYPE_CODES = {
-    "lw": ("010", "0000011"), "addi": ("000", "0010011"), 
+    "lw": ("010", "0000011"), "addi": ("000", "0010011"),
     "sltiu": ("011", "0010011"), "jalr": ("000", "1100111")
 }
 
 S_TYPE_CODES = ["sw"]
 
 B_TYPE_CODES = {
-    "beq": "000", "bne": "001", "blt": "100", "bge": "101", 
+    "beq": "000", "bne": "001", "blt": "100",
     "bltu": "110", "bgeu": "111"
 }
 
+U_TYPE_CODES = {'lui': '0110111', 'auipc': '0010111'}
+
+J_TYPE_CODES = {'jal': '1101111'}
+
 EXT_TYPE_CODES = {"mul", "rst", "halt", "rvrs"}
 
-ALL_CODES = [R_TYPE_CODES, I_TYPE_CODES, S_TYPE_CODES, B_TYPE_CODES, EXT_TYPE_CODES]
+ALL_CODES = [R_TYPE_CODES, I_TYPE_CODES, S_TYPE_CODES, B_TYPE_CODES, U_TYPE_CODES, J_TYPE_CODES, EXT_TYPE_CODES]
 
 
 # Helper Functions
@@ -103,56 +107,55 @@ def handle_i_type(instruction):
         return "error"
 
 
-# S type instructions
-def handle_s_type(instruction):
-    parts = [part.strip() for part in instruction.split(",")]
-    try:
-        imm_str = parts[1][:parts[1].index("(")]
-        imm = int(imm_str)
-        if not is_immediate_valid(imm, 12):
-            return "ill_imm"
-        rs2 = REGISTER_CODES[parts[0].split()[1]]
-        rs1 = REGISTER_CODES[parts[1][parts[1].index("(")+1:parts[1].index(")")]]
-        imm_bin = decimal_to_binary(imm, 12)
-        return f"{imm_bin[:7]}{rs2}{rs1}010{imm_bin[7:12]}0100011\n"
-    except:
-        return "error"
+def convert_instruction_to_binary(instruction):
+    for i, code_set in enumerate(ALL_CODES):
+        if instruction.split()[0] in code_set:
+            return [handle_r_type, handle_i_type, handle_s_type, handle_b_type, handle_u_type, handle_j_type, handle_ext_type][i](instruction)
+    return "error"
 
 
-# B type instructions
-def handle_b_type(instruction):
-    parts = [part.strip() for part in instruction.split(",")]
-    try:
-        op, rs1 = parts[0].split()
-        rs2 = REGISTER_CODES[parts[1]]
-        imm = int(parts[2])
-        if not is_immediate_valid(imm, 13):
-            return "ill_imm"
-        imm_bin = decimal_to_binary(imm, 13)
-        imm_rearranged = imm_bin[0] + imm_bin[2:8] + imm_bin[8:12] + imm_bin[1]  
-        return f"{imm_rearranged}{rs2}{REGISTER_CODES[rs1]}{B_TYPE_CODES[op]}1100011\n"
-    except:
-        return "error"
+if _name_ == "_main_":
+    if len(sys.argv) < 3:
+        print("Usage: python assembler.py <input_file> <output_file> [--format=plain|spaced]")
+        sys.exit(1)
 
+    input_file, output_file = sys.argv[1], sys.argv[2]
+    output_format = "plain"
 
-# Extended type instructions
-def handle_ext_type(instruction):
-    parts = [part.strip() for part in instruction.split(",")]
-    op = parts[0].split()[0]
-    try:
-        if op == "mul":
-            if len(parts) < 3:
-                return "error"
-            return f"0000000{REGISTER_CODES[parts[2]]}{REGISTER_CODES[parts[1]]}000{REGISTER_CODES[parts[0].split()[1]]}1111111\n"
-        elif op == "rst":
-            return "0000000111111111111111111111111\n" if len(parts) == 1 else "error"
-        elif op == "halt":
-            return "00000000000000000000000001100011\n" if len(parts) == 1 else "error"
-        elif op == "rvrs":
-            if len(parts) < 2:
-                return "error"
-            return f"000000000000{REGISTER_CODES[parts[1]]}001{REGISTER_CODES[parts[0].split()[1]]}1111111\n"
-        else:
-            return "error"
-    except:
-        return "error"
+    if len(sys.argv) == 4 and sys.argv[3].startswith("--format="):
+        output_format = sys.argv[3].split("=")[1]
+
+    with open(input_file, "r") as f:
+        data = f.read().splitlines()
+
+    process_labels(data)
+
+    binary_output = []
+    for i, line in enumerate(data):
+        if not line.strip():
+            continue
+
+        binary_code = convert_instruction_to_binary(line)
+        
+        if binary_code == "error":
+            print(f"Syntax Error at line {i+1}")
+            sys.exit(1)
+        elif binary_code == "ill_imm":
+            print(f"Illegal immediate value at line {i+1}")
+            sys.exit(1)
+        
+        binary_output.append(binary_code.strip())
+
+    halt_status = check_virtual_halt(binary_output)
+
+    if halt_status == 1:
+        with open(output_file, "w") as f:
+            if output_format == "spaced":
+                f.write(" ".join(binary_output))
+            else:
+                f.write("\n".join(binary_output))
+        print("Output file written successfully.")
+    elif halt_status == 0:
+        print("Virtual halt is not the last instruction")
+    else:
+        print("Virtual halt missing")
